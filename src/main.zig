@@ -1,24 +1,77 @@
 const std = @import("std");
+const http = std.http;
+const log = std.log.scoped(.server);
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+const server_address = "127.0.0.1";
+const server_port = 8000;
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+fn runServer(server: *http.Server, allocator: std.mem.Allocator) !void {
+    outer: while (true) {
+        var response = try server.accept(.{
+            .allocator = allocator,
+        });
+        defer response.deinit();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+        while (response.reset() != .closing) {
+            response.wait() catch |err| switch (err) {
+                error.HttpHeadersInvalid => continue :outer,
+                error.EndOfStream => continue,
+                else => return err,
+            };
 
-    try bw.flush(); // don't forget to flush!
+            try handleRequest(&response, allocator);
+        }
+    }
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) !void {
+    log.info("{s} {s} {s}", .{ @tagName(response.request.method), @tagName(response.request.version), response.request.target });
+
+    const body = try response.reader().readAllAlloc(allocator, 8192);
+    defer allocator.free(body);
+
+    if (response.request.headers.contains("connection")) {
+        try response.headers.append("connection", "keep-alive");
+    }
+
+    if (std.mem.startsWith(u8, response.request.target, "/get")) {
+        if (std.mem.indexOf(u8, response.request.target, "?chunked") != null) {
+            response.transfer_encoding = .chunked;
+        } else {
+            response.transfer_encoding = .{ .content_length = 10 };
+        }
+
+        try response.headers.append("content-type", "text/plain");
+
+        try response.do();
+        if (response.request.method != .HEAD) {
+            try response.writeAll("Zig ");
+            try response.writeAll("Bits!\n");
+            try response.finish();
+        }
+    } else {
+        response.status = .not_found;
+        try response.do();
+    }
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    var server = http.Server.init(allocator, .{ .reuse_address = true });
+    defer server.deinit();
+
+    log.info("Server is running at {s}:{d}", .{ server_address, server_port });
+    const address = std.net.Address.parseIp(server_address, server_port) catch unreachable;
+    try server.listen(address);
+
+    runServer(&server, allocator) catch |err| {
+        log.err("server error: {}\n", .{err});
+        if (@errorReturnTrace()) |trace| {
+            std.debug.dumpStackTrace(trace.*);
+        }
+        std.os.exit(1);
+    };
 }
