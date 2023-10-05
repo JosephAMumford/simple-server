@@ -31,28 +31,43 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
     defer allocator.free(body);
 
     if (response.request.headers.contains("connection")) {
-        try response.headers.append("connection", "keep-alive");
+        try response.headers.append("connection", "close");
     }
 
-    if (std.mem.startsWith(u8, response.request.target, "/get")) {
-        if (std.mem.indexOf(u8, response.request.target, "?chunked") != null) {
-            response.transfer_encoding = .chunked;
-        } else {
-            response.transfer_encoding = .{ .content_length = 10 };
-        }
+    var response_message: []const u8 = undefined;
 
+    if (std.mem.eql(u8, response.request.target, "/route1")) {
+        response_message = routeOne(response);
+    } else if (std.mem.eql(u8, response.request.target, "/route2")) {
+        response_message = routeTwo();
+    } else {
+        response_message = "Not found";
+        response.status = .ok;
+    }
+
+    std.log.info("{s}", .{response_message});
+
+    if (response.status != .not_found) {
         try response.headers.append("content-type", "text/plain");
 
         try response.do();
         if (response.request.method != .HEAD) {
-            try response.writeAll("Zig ");
-            try response.writeAll("Bits!\n");
+            response.transfer_encoding = .{ .content_length = response_message.len };
+            try response.writeAll(response_message);
             try response.finish();
         }
     } else {
-        response.status = .not_found;
         try response.do();
     }
+}
+
+fn routeOne(response: *http.Server.Response) []const u8 {
+    response.status = .created;
+    return "Database results";
+}
+
+fn routeTwo() []const u8 {
+    return "User logged in";
 }
 
 pub fn main() !void {
