@@ -38,27 +38,30 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
 
     if (std.mem.eql(u8, response.request.target, "/route1")) {
         response_message = routeOne(response);
-    } else if (std.mem.eql(u8, response.request.target, "/route2")) {
-        response_message = routeTwo();
-    } else {
-        response_message = "Not found";
-        response.status = .ok;
-    }
-
-    std.log.info("{s}", .{response_message});
-
-    if (response.status != .not_found) {
         try response.headers.append("content-type", "text/plain");
 
-        try response.do();
-        if (response.request.method != .HEAD) {
-            response.transfer_encoding = .{ .content_length = response_message.len };
-            try response.writeAll(response_message);
-            try response.finish();
-        }
+        try sendResponse(response, response_message);
+    } else if (std.mem.eql(u8, response.request.target, "/route2")) {
+        response_message = routeTwo();
+        try response.headers.append("content-type", "text/plain");
+
+        try sendResponse(response, response_message);
+    } else if (std.mem.startsWith(u8, response.request.target, "/get")) {
+        response_message = routeOne(response);
+        try response.headers.append("content-type", "text/plain");
+
+        try sendResponse(response, response_message);
     } else {
+        response.status = .not_found;
         try response.do();
     }
+}
+
+fn sendResponse(response: *http.Server.Response, data: []const u8) anyerror!void {
+    response.transfer_encoding = .{ .content_length = data.len };
+    try response.do();
+    try response.writeAll(data);
+    try response.finish();
 }
 
 fn routeOne(response: *http.Server.Response) []const u8 {
