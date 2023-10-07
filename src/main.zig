@@ -6,8 +6,9 @@ const server_address = "127.0.0.1";
 const server_port = 8000;
 
 const HeaderContentStruct = struct { textPlain: []const u8 = "text/plain" };
-
 const HeaderContent = HeaderContentStruct{};
+
+const HeaderContentType = @import("utilities.zig").HeaderContentType;
 
 fn runServer(server: *http.Server, allocator: std.mem.Allocator) !void {
     outer: while (true) {
@@ -42,17 +43,17 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
 
     if (std.mem.eql(u8, response.request.target, "/route1")) {
         response_message = routeOne(response);
-        try response.headers.append("content-type", HeaderContent.textPlain);
+        try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
 
         try sendResponse(response, response_message);
     } else if (std.mem.eql(u8, response.request.target, "/route2")) {
         response_message = routeTwo();
-        try response.headers.append("content-type", HeaderContent.textPlain);
+        try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
 
         try sendResponse(response, response_message);
     } else if (std.mem.startsWith(u8, response.request.target, "/get")) {
         response_message = routeOne(response);
-        try response.headers.append("content-type", HeaderContent.textPlain);
+        try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
 
         try sendResponse(response, response_message);
     } else {
