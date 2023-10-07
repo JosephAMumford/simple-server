@@ -5,6 +5,10 @@ const log = std.log.scoped(.server);
 const server_address = "127.0.0.1";
 const server_port = 8000;
 
+const HeaderContentStruct = struct { textPlain: []const u8 = "text/plain" };
+
+const HeaderContent = HeaderContentStruct{};
+
 fn runServer(server: *http.Server, allocator: std.mem.Allocator) !void {
     outer: while (true) {
         var response = try server.accept(.{
@@ -38,22 +42,22 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
 
     if (std.mem.eql(u8, response.request.target, "/route1")) {
         response_message = routeOne(response);
-        try response.headers.append("content-type", "text/plain");
+        try response.headers.append("content-type", HeaderContent.textPlain);
 
         try sendResponse(response, response_message);
     } else if (std.mem.eql(u8, response.request.target, "/route2")) {
         response_message = routeTwo();
-        try response.headers.append("content-type", "text/plain");
+        try response.headers.append("content-type", HeaderContent.textPlain);
 
         try sendResponse(response, response_message);
     } else if (std.mem.startsWith(u8, response.request.target, "/get")) {
         response_message = routeOne(response);
-        try response.headers.append("content-type", "text/plain");
+        try response.headers.append("content-type", HeaderContent.textPlain);
 
         try sendResponse(response, response_message);
     } else {
         response.status = .not_found;
-        try response.do();
+        try sendResponse(response, "Resource not found");
     }
 }
 
@@ -90,6 +94,5 @@ pub fn main() !void {
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
-        std.os.exit(1);
     };
 }
