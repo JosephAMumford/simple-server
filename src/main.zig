@@ -50,7 +50,7 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
 
         try sendResponse(response, response_message);
     } else if (std.mem.eql(u8, response.request.target, "/route3")) {
-        response_message = routeThree(response);
+        response_message = try routeThree(response);
         try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
 
         try sendResponse(response, response_message);
@@ -67,7 +67,8 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
     const time_end_ns = timer.read();
     const time_end_us: u64 = time_end_ns / 1000;
     const time_end_ms = @as(f64, @floatFromInt(time_end_us)) / 1000.0;
-    std.log.info("{}ns : {}us : {}ms", .{ time_end_ns, time_end_us, time_end_ms });
+
+    std.log.info("{}ns : {}us : {d:.2}ms", .{ time_end_ns, time_end_us, time_end_ms });
 }
 
 fn sendResponse(response: *http.Server.Response, data: []const u8) anyerror!void {
@@ -87,10 +88,13 @@ fn routeTwo(response: *http.Server.Response) []const u8 {
     return "{\"message\":\"User logged in\"}";
 }
 
-fn routeThree(response: *http.Server.Response) []const u8 {
+fn routeThree(response: *http.Server.Response) anyerror![]const u8 {
     response.status = .ok;
+    const allocator = std.heap.page_allocator;
 
-    return "<!DOCTYPE html><html><body><h1>Route 3</h1><p>Test HTML Template</p></body></html>";
+    const file = try std.fs.cwd().readFileAlloc(allocator, "src/index.html", 1000);
+    return file;
+    //return "<!DOCTYPE html><html><body><h1>Route 3</h1><p>Test HTML Template</p></body></html>";
 }
 
 pub fn main() !void {
