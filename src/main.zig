@@ -59,6 +59,10 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
         try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
 
         try sendResponse(response, response_message);
+    } else if (std.mem.startsWith(u8, response.request.target, "/routes")) {
+        response_message = try routes(response);
+        try response.headers.append("content-type", HeaderContentType.TextCss.toString());
+        try sendResponse(response, response_message);
     } else {
         response.status = .not_found;
         try sendResponse(response, "Resource not found");
@@ -92,9 +96,17 @@ fn routeThree(response: *http.Server.Response) anyerror![]const u8 {
     response.status = .ok;
     const allocator = std.heap.page_allocator;
 
-    const file = try std.fs.cwd().readFileAlloc(allocator, "src/index.html", 1000);
+    const file = try std.fs.cwd().readFileAlloc(allocator, "routes/index.html", 1000);
+
     return file;
-    //return "<!DOCTYPE html><html><body><h1>Route 3</h1><p>Test HTML Template</p></body></html>";
+}
+
+fn routes(response: *http.Server.Response) anyerror![]const u8 {
+    response.status = .ok;
+    const allocator = std.heap.page_allocator;
+    const resource_path = response.request.target[1..];
+    const file = try std.fs.cwd().readFileAlloc(allocator, resource_path, 8192);
+    return file;
 }
 
 pub fn main() !void {
