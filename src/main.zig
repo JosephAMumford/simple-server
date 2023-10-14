@@ -25,6 +25,38 @@ fn runServer(server: *http.Server, allocator: std.mem.Allocator) !void {
     }
 }
 
+fn handleRequest2(response: *http.Server.Response, allocator: std.mem.Allocator) !void {
+    log.info("{s} {s} {s}", .{ @tagName(response.request.method), @tagName(response.request.version), response.request.target });
+
+    const body = try response.reader().readAllAlloc(allocator, 8192);
+    defer allocator.free(body);
+
+    if (std.mem.startsWith(u8, response.request.target, "/api")) {
+        //Do API stuff
+    } else {
+        //Go to pages
+        //if just "/", get index.html, else try to open route file, like "<main>/index/<main>.html"
+        if (std.mem.eql(u8, response.request.target, "/")) {
+            response.status = .ok;
+            //const allocator = std.heap.page_allocator;
+
+            const file = try std.fs.cwd().readFileAlloc(allocator, "routes/index.html", 1000);
+            try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
+            try sendResponse(response, file);
+        } else {
+            const resource_path = response.request.target[1..];
+            const file = try std.fs.cwd().readFileAlloc(allocator, resource_path, 8192) catch |err| {
+                log.info("{s}", .{err});
+                response.status = .not_found;
+                try sendResponse(response, "Resource not found");
+            };
+
+            response.status = .ok;
+            try sendResponse(response, file);
+        }
+    }
+}
+
 fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) !void {
     var timer = try std.time.Timer.start();
 
@@ -32,6 +64,8 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
 
     const body = try response.reader().readAllAlloc(allocator, 8192);
     defer allocator.free(body);
+
+    log.info("{s}", .{body});
 
     if (response.request.headers.contains("connection")) {
         try response.headers.append("connection", "close");
@@ -61,7 +95,7 @@ fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) 
         try sendResponse(response, response_message);
     } else if (std.mem.startsWith(u8, response.request.target, "/routes")) {
         response_message = try routes(response);
-        try response.headers.append("content-type", HeaderContentType.TextCss.toString());
+
         try sendResponse(response, response_message);
     } else {
         response.status = .not_found;
@@ -105,7 +139,19 @@ fn routes(response: *http.Server.Response) anyerror![]const u8 {
     response.status = .ok;
     const allocator = std.heap.page_allocator;
     const resource_path = response.request.target[1..];
+
+    std.fs.cwd().access(resource_path, .{}) catch |err| {
+        log.info("{}", .{err});
+        if (err == std.os.AccessError.FileNotFound) {
+            try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
+            response.status = .not_found;
+            return "Resource not found";
+        }
+    };
+
     const file = try std.fs.cwd().readFileAlloc(allocator, resource_path, 8192);
+
+    try response.headers.append("content-type", HeaderContentType.TextCss.toString());
     return file;
 }
 
