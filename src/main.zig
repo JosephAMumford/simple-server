@@ -25,88 +25,68 @@ fn runServer(server: *http.Server, allocator: std.mem.Allocator) !void {
     }
 }
 
-fn handleRequest2(response: *http.Server.Response, allocator: std.mem.Allocator) !void {
-    log.info("{s} {s} {s}", .{ @tagName(response.request.method), @tagName(response.request.version), response.request.target });
-
-    const body = try response.reader().readAllAlloc(allocator, 8192);
-    defer allocator.free(body);
-
-    if (std.mem.startsWith(u8, response.request.target, "/api")) {
-        //Do API stuff
-    } else {
-        //Go to pages
-        //if just "/", get index.html, else try to open route file, like "<main>/index/<main>.html"
-        if (std.mem.eql(u8, response.request.target, "/")) {
-            response.status = .ok;
-            //const allocator = std.heap.page_allocator;
-
-            const file = try std.fs.cwd().readFileAlloc(allocator, "routes/index.html", 1000);
-            try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
-            try sendResponse(response, file);
-        } else {
-            const resource_path = response.request.target[1..];
-            const file = try std.fs.cwd().readFileAlloc(allocator, resource_path, 8192) catch |err| {
-                log.info("{s}", .{err});
-                response.status = .not_found;
-                try sendResponse(response, "Resource not found");
-            };
-
-            response.status = .ok;
-            try sendResponse(response, file);
-        }
-    }
-}
-
-fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) !void {
+fn handleRequest(response: *http.Server.Response, allocator: std.mem.Allocator) anyerror!void {
     var timer = try std.time.Timer.start();
-
     log.info("{s} {s} {s}", .{ @tagName(response.request.method), @tagName(response.request.version), response.request.target });
 
     const body = try response.reader().readAllAlloc(allocator, 8192);
     defer allocator.free(body);
-
-    log.info("{s}", .{body});
 
     if (response.request.headers.contains("connection")) {
         try response.headers.append("connection", "close");
     }
 
-    var response_message: []const u8 = undefined;
-
-    if (std.mem.eql(u8, response.request.target, "/route1")) {
-        response_message = routeOne(response);
-        try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
-
-        try sendResponse(response, response_message);
-    } else if (std.mem.eql(u8, response.request.target, "/route2")) {
-        response_message = routeTwo(response);
-        try response.headers.append("content-type", HeaderContentType.JSON.toString());
-
-        try sendResponse(response, response_message);
-    } else if (std.mem.eql(u8, response.request.target, "/route3")) {
-        response_message = try routeThree(response);
-        try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
-
-        try sendResponse(response, response_message);
-    } else if (std.mem.startsWith(u8, response.request.target, "/get")) {
-        response_message = routeOne(response);
-        try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
-
-        try sendResponse(response, response_message);
-    } else if (std.mem.startsWith(u8, response.request.target, "/routes")) {
-        response_message = try routes(response);
-
-        try sendResponse(response, response_message);
+    if (std.mem.startsWith(u8, response.request.target, "api")) {
+        //Do API stuff
     } else {
-        response.status = .not_found;
-        try sendResponse(response, "Resource not found");
+        if (std.mem.eql(u8, response.request.target, "/")) {
+            response.status = .ok;
+
+            const file = try std.fs.cwd().readFileAlloc(allocator, "pages/index.html", 8192);
+            try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
+            try sendResponse(response, file);
+        } else {
+            const resource_path = response.request.target[1..];
+            const base_dir = "pages/";
+            const key = try allocator.alloc(u8, base_dir.len + resource_path.len);
+            std.mem.copy(u8, key[0..], base_dir);
+            std.mem.copy(u8, key[base_dir.len..], resource_path);
+
+            var resource_Exists: bool = true;
+            std.fs.cwd().access(key, .{}) catch |err| {
+                log.info("{}", .{err});
+                if (err == std.os.AccessError.FileNotFound) {
+                    resource_Exists = false;
+                }
+            };
+
+            if (resource_Exists == true) {
+                const file = try std.fs.cwd().readFileAlloc(allocator, key, 8192);
+
+                response.status = .ok;
+                try setContentType(response, resource_path);
+                try sendResponse(response, file);
+            } else {
+                try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
+                response.status = .not_found;
+                try sendResponse(response, "Resource not found");
+            }
+        }
     }
 
     const time_end_ns = timer.read();
     const time_end_us: u64 = time_end_ns / 1000;
     const time_end_ms = @as(f64, @floatFromInt(time_end_us)) / 1000.0;
 
-    std.log.info("{}ns : {}us : {d:.2}ms", .{ time_end_ns, time_end_us, time_end_ms });
+    log.info("Response time {}ns : {}us : {d:.2}ms", .{ time_end_ns, time_end_us, time_end_ms });
+}
+
+fn setContentType(response: *http.Server.Response, resource: []const u8) !void {
+    if (std.mem.endsWith(u8, resource, ".html")) {
+        try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
+    } else if (std.mem.endsWith(u8, resource, ".css")) {
+        try response.headers.append("content-type", HeaderContentType.TextCss.toString());
+    }
 }
 
 fn sendResponse(response: *http.Server.Response, data: []const u8) anyerror!void {
@@ -114,45 +94,6 @@ fn sendResponse(response: *http.Server.Response, data: []const u8) anyerror!void
     try response.do();
     try response.writeAll(data);
     try response.finish();
-}
-
-fn routeOne(response: *http.Server.Response) []const u8 {
-    response.status = .created;
-    return "Database results";
-}
-
-fn routeTwo(response: *http.Server.Response) []const u8 {
-    response.status = .ok;
-    return "{\"message\":\"User logged in\"}";
-}
-
-fn routeThree(response: *http.Server.Response) anyerror![]const u8 {
-    response.status = .ok;
-    const allocator = std.heap.page_allocator;
-
-    const file = try std.fs.cwd().readFileAlloc(allocator, "routes/index.html", 1000);
-
-    return file;
-}
-
-fn routes(response: *http.Server.Response) anyerror![]const u8 {
-    response.status = .ok;
-    const allocator = std.heap.page_allocator;
-    const resource_path = response.request.target[1..];
-
-    std.fs.cwd().access(resource_path, .{}) catch |err| {
-        log.info("{}", .{err});
-        if (err == std.os.AccessError.FileNotFound) {
-            try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
-            response.status = .not_found;
-            return "Resource not found";
-        }
-    };
-
-    const file = try std.fs.cwd().readFileAlloc(allocator, resource_path, 8192);
-
-    try response.headers.append("content-type", HeaderContentType.TextCss.toString());
-    return file;
 }
 
 pub fn main() !void {
