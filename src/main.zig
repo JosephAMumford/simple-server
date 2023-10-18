@@ -8,7 +8,7 @@ pub fn main() !void {
     defer std.debug.assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    var server = simple_server{};
+    var server = simple_server{.base_dir = "frontend/dist/"};
     try server.init(allocator, "127.0.0.1", 8000);
     defer server.server.deinit();
 
