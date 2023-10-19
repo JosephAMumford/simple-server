@@ -3,29 +3,14 @@ const http = std.http;
 const log = std.log.scoped(.server);
 const testing = std.testing;
 
-pub const HeaderContentType = enum {
-    Any,
-    ImageSvg,
-    ImageSvgXml,
-    TextPlain,
-    TextHtml,
-    TextCss,
-    JavaScript,
-    JSON,
-
-    pub fn toString(self: HeaderContentType) []const u8 {
-        return switch (self) {
-            .Any => "*/*",
-            .ImageSvg => "image/svg",
-            .ImageSvgXml => "image/svg+xml",
-            .TextPlain => "text/plain",
-            .TextHtml => "text/html",
-            .TextCss => "text/css",
-            .JavaScript => "text/javascript",
-            .JSON => "application/json",
-        };
-    }
-};
+pub const header_content_type = std.ComptimeStringMap([]const u8, .{
+    .{ "any", "*/*" },
+    .{ "svg", "image/svg+xml" },
+    .{ "html", "text/html" },
+    .{ "css", "text/css" },
+    .{ "js", "text/javascript" },
+    .{ "json", "application/json" },
+});
 
 pub const SimpleServer = struct {
     server: http.Server = undefined,
@@ -80,7 +65,7 @@ pub const SimpleServer = struct {
                 std.mem.copy(u8, root_path[self.base_dir.len..], root_file);
 
                 const file = try std.fs.cwd().readFileAlloc(allocator, root_path, 16777216);
-                try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
+                try response.headers.append("content-type", "text/html");
                 try sendResponse(response, file);
             } else {
                 const resource_path = response.request.target[1..];
@@ -99,12 +84,11 @@ pub const SimpleServer = struct {
 
                 if (resource_Exists == true) {
                     const file = try std.fs.cwd().readFileAlloc(allocator, key, 16777216);
-
                     response.status = .ok;
                     try setContentType(response, resource_path);
                     try sendResponse(response, file);
                 } else {
-                    try response.headers.append("content-type", HeaderContentType.TextPlain.toString());
+                    try response.headers.append("content-type", "text/plain");
                     response.status = .not_found;
                     try sendResponse(response, "Resource not found");
                 }
@@ -119,14 +103,13 @@ pub const SimpleServer = struct {
     }
 
     fn setContentType(response: *http.Server.Response, resource: []const u8) !void {
-        if (std.mem.endsWith(u8, resource, ".html")) {
-            try response.headers.append("content-type", HeaderContentType.TextHtml.toString());
-        } else if (std.mem.endsWith(u8, resource, ".css")) {
-            try response.headers.append("content-type", HeaderContentType.TextCss.toString());
-        } else if (std.mem.endsWith(u8, resource, ".js")) {
-            try response.headers.append("content-type", HeaderContentType.JavaScript.toString());
-        } else if (std.mem.endsWith(u8, resource, ".svg")) {
-            try response.headers.append("content-type", HeaderContentType.ImageSvgXml.toString());
+        var it = std.mem.split(u8, resource, ".");
+        while (it.next()) |x| {
+            if (it.peek() == null) {
+                const file_extension = header_content_type.get(x).?;
+                log.info(" split header: {s}", .{file_extension});
+                try response.headers.append("content-type", file_extension);
+            }
         }
     }
 
@@ -138,9 +121,9 @@ pub const SimpleServer = struct {
     }
 };
 
-test "HeaderContentType" {
-    try testing.expect(std.mem.eql(u8, HeaderContentType.TextPlain.toString(), "text/plain"));
-    try testing.expect(std.mem.eql(u8, HeaderContentType.TextHtml.toString(), "text/html"));
-    try testing.expect(std.mem.eql(u8, HeaderContentType.TextCss.toString(), "text/css"));
-    try testing.expect(std.mem.eql(u8, HeaderContentType.JSON.toString(), "application/json"));
-}
+// test "HeaderContentType" {
+//     try testing.expect(std.mem.eql(u8, HeaderContentType.TextPlain.toString(), "text/plain"));
+//     try testing.expect(std.mem.eql(u8, HeaderContentType.TextHtml.toString(), "text/html"));
+//     try testing.expect(std.mem.eql(u8, HeaderContentType.TextCss.toString(), "text/css"));
+//     try testing.expect(std.mem.eql(u8, HeaderContentType.JSON.toString(), "application/json"));
+// }
